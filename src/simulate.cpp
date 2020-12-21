@@ -6,7 +6,6 @@
 #include <Eigen/Dense>
 
 #include <Eigen/IterativeLinearSolvers>
-//#include <EigenTypes.h>
 typedef Eigen::SparseMatrix<double>SparseMatrixd;
 using namespace Eigen;
 using namespace std;
@@ -38,11 +37,21 @@ void zero_out_grid(vector<MatrixXd>& grid){
 
 double calc_weight(Vector3d v1, Vector3d v2){
 	Vector3d diff = (v1 - v2).cwiseAbs();
-	double w = (1-diff(0)) * (1-diff(1)) * (1-diff(2)); //?
-	if (w < 0 || w > 1){
-		//cout << "OUT OF RANGE WEIGHT!!!"<< endl;
-	}
+	double w = (1-diff(0)) * (1-diff(1)) * (1-diff(2));
 	return w;
+}
+
+void remove_particles(sim_data& d){
+	auto it = d.particles.begin();
+	while(it != d.particles.end()){
+		particle p = *it;
+		if(p.pos(1) < 0.0){
+			it = d.particles.erase(it);
+		}
+		else{
+			++it;
+		}
+	}
 }
 
 void step_advection(sim_data& d, double dt){
@@ -65,106 +74,114 @@ void step_external_force(sim_data& d, double dt){
 	}
 }
 
-
-#include <map>
 void set_grid_with_particles(sim_data& d){
-	// May need to change!
-	// check piazza "Bilinear Interpolation"
-	// Consider: if 10 particles are near a point and moving in same direction
-	// , does this mean that the particles would move essentially 10 times faster??
-	//   => isn't normalization needed? (mentioned in comment, suggests to divide by sum of weights?)
-	
-	// use map
-	map<Vector3i, double, Vector3iCompare> wSums;
 	
 	// zero out velocity grid!
 	zero_out_grid(d.gridVel[0]);
 	zero_out_grid(d.gridVel[1]);
 	zero_out_grid(d.gridVel[2]);
-
-	for(int i = 0; i < d.particles.size(); i++){typedef Triplet<double>td;
-		particle part = d.particles[i];
-		Vector3i iPos = clampI(part.pos, d.gridDims - Vector3i(1,1,1));
-		Vector3d dPos = clampD(part.pos, d.gridDims.cast<double>());
-		//cout << "iPos " << iPos << endl;
-		//cout << "dPos " << dPos << endl;
-		// loop over 8 points on grid to contribute to 
-		for(int ox = 0; ox <= 1; ox ++){
-			for(int oy = 0; oy <=1; oy ++){
-				for(int oz = 0; oz <= 1; oz ++){
-					Vector3i gPos = iPos + Vector3i(ox, oy, oz);
-					double w = calc_weight(dPos, gPos.cast<double>());
-					if(w != 0){
-						if(wSums.count(gPos) == 0){
-							wSums.insert(pair<Vector3i, double>(gPos, 0.0));
+	
+	// need to consider different offset for every grid
+	for(int dim = 0; dim < 3; dim++){
+		Vector3d offset = Vector3d::Zero();
+		int dim2 = (dim+1)%3;
+		int dim3 = (dim+2)%3;
+		offset(dim2) = 0.5;
+		offset(dim3) = 0.5;
+		for(int i = 0; i < d.particles.size(); i++){
+			particle part = d.particles[i];
+			// position offsetted
+			Vector3d dposForIndex = part.pos + offset;
+			Vector3i maxIndex = Vector3i::Zero();
+			maxIndex(dim) = d.gridDims(dim)-1;
+			maxIndex(dim2) = d.gridDims(dim2);
+			maxIndex(dim3) = d.gridDims(dim3);
+			Vector3i iposForIndex = clampI(dposForIndex, maxIndex);
+			for(int ox = 0; ox <= 1; ox ++){
+				for(int oy = 0; oy <=1; oy ++){
+					for(int oz = 0; oz <= 1; oz ++){
+						/*Vector3i vectorIndex = iposForIndex + Vector3i(ox, oy, oz);
+						if(vectorIndex(dim) == 0 || vectorIndex(dim) == d.gridDims(dim)){
+							// leave it at zero?
 						}
-						wSums[gPos] += w;
-						//wSums[gPos] += w;
-						for(int dim = 0; dim < 3; dim++){
-							d.gridVel[dim][gPos[2]](gPos(0), gPos(1)) += w * part.vel[dim];
-						}
+						else{
+							double w = calc_weight(dposForIndex, vectorIndex.cast<double>());
+							d.gridVel[dim][vectorIndex[2]](vectorIndex(0), vectorIndex(1)) += w * part.vel(dim);
+						}*/
+					
+						Vector3i vectorIndex = iposForIndex + Vector3i(ox, oy, oz);
+						double w = calc_weight(dposForIndex, vectorIndex.cast<double>());
+						d.gridVel[dim][vectorIndex[2]](vectorIndex(0), vectorIndex(1)) += w * part.vel(dim);
 					}
 				}
 			}
 		}
 	}
 	
-	if(d.normalize_velocity_grid){
-		for(auto i = wSums.begin(); i != wSums.end(); ++i){
-			for(int dim = 0; dim < 3; dim++){
-				double weight = (*i).second;
-				if(weight != 0){
-					Vector3i vi = (*i).first;
-					d.gridVel[dim][vi(2)](vi(0), vi(1)) /= (*i).second;
-				}
-			}
-		}
-	}
-	
-	if(d.print_debug_once){
-		for(int z = 0; z <= d.gridDims(2); z++){
-			cout << "gridVel[1][mid]:" << d.gridVel[1][z] << endl;
-		}
-		for(auto i = wSums.begin(); i != wSums.end(); ++i){
-			cout << "wSum: " << (*i).second << endl;
-		}
-	}
 }
 
 
 
 void set_particles_with_grid(sim_data& d){
 	for(int i = 0; i < d.particles.size(); i++){
-		particle part = d.particles[i];
 		d.particles[i].vel *= 0; // Zero out velocity
-		Vector3i iPos = clampI(part.pos, d.gridDims - Vector3i(1,1,1));
-		Vector3d dPos = clampD(part.pos, d.gridDims.cast<double>());
-		if(d.print_debug_once){
-			cout << "\npart.pos = " << part.pos.transpose() << endl;
-			cout << "iPos = " << iPos.transpose() << endl;
-			cout << "dPos = " << dPos.transpose() << endl;
-			cout << "weights = ";
-		}
-		// loop over 8 points on grid to contribute to 
-		for(int ox = 0; ox <= 1; ox ++){
-			for(int oy = 0; oy <=1; oy ++){
-				for(int oz = 0; oz <= 1; oz ++){
-					Vector3i gPos = iPos + Vector3i(ox, oy, oz);
-					double w = calc_weight(dPos, gPos.cast<double>());
-					if(d.print_debug_once){
-						cout << w << ", ";
-					}
-					for(int dim = 0; dim < 3; dim++){
-						//d.gridVel[dim][gPos[2]](gPos(0), gPos(1)) += w * part.vel[dim];
-						// DON'T use part, is copy of value
-						//d.particles[i].vel[dim] += w * d.gridVel[dim][gPos[2]](gPos(0), gPos(1));
-						d.particles[i].vel(dim) += w * d.gridVel[dim][gPos[2]](gPos(0), gPos(1));
+	}
+	for(int dim = 0; dim < 3; dim++){
+		Vector3d offset = Vector3d::Zero();
+		int dim2 = (dim+1)%3;
+		int dim3 = (dim+2)%3;
+		offset(dim2) = 0.5;
+		offset(dim3) = 0.5;
+		for(int i = 0; i < d.particles.size(); i++){
+			particle part = d.particles[i];
+			
+			// position offsetted
+			Vector3d dposForIndex = part.pos + offset;
+			Vector3i maxIndex = Vector3i::Zero();
+			maxIndex(dim) = d.gridDims(dim)-1;
+			maxIndex(dim2) = d.gridDims(dim2);
+			maxIndex(dim3) = d.gridDims(dim3);
+			Vector3i iposForIndex = clampI(dposForIndex, maxIndex);
+			for(int ox = 0; ox <= 1; ox ++){
+				for(int oy = 0; oy <=1; oy ++){
+					for(int oz = 0; oz <= 1; oz ++){
+						Vector3i vectorIndex = iposForIndex + Vector3i(ox, oy, oz);
+						double w = calc_weight(dposForIndex, vectorIndex.cast<double>());
+						d.particles[i].vel(dim) += w * d.gridVel[dim][vectorIndex[2]](vectorIndex(0), vectorIndex(1));
 					}
 				}
 			}
 		}
-		if(d.print_debug_once){
-			cout << "Vel: " << d.particles[i].vel.transpose() << endl;
+	}
+}
+
+void set_particles_with_grid_flip(sim_data& d){
+	
+	for(int dim = 0; dim < 3; dim++){
+		Vector3d offset = Vector3d::Zero();
+		int dim2 = (dim+1)%3;
+		int dim3 = (dim+2)%3;
+		offset(dim2) = 0.5;
+		offset(dim3) = 0.5;
+		for(int i = 0; i < d.particles.size(); i++){
+			particle part = d.particles[i];
+			
+			// position offsetted
+			Vector3d dposForIndex = part.pos + offset;
+			Vector3i maxIndex = Vector3i::Zero();
+			maxIndex(dim) = d.gridDims(dim)-1;
+			maxIndex(dim2) = d.gridDims(dim2);
+			maxIndex(dim3) = d.gridDims(dim3);
+			Vector3i iposForIndex = clampI(dposForIndex, maxIndex);
+			for(int ox = 0; ox <= 1; ox ++){
+				for(int oy = 0; oy <=1; oy ++){
+					for(int oz = 0; oz <= 1; oz ++){
+						Vector3i vectorIndex = iposForIndex + Vector3i(ox, oy, oz);
+						double w = calc_weight(dposForIndex, vectorIndex.cast<double>());
+						d.particles[i].vel(dim) += w * d.dGridVel[dim][vectorIndex[2]](vectorIndex(0), vectorIndex(1));
+					}
+				}
+			}
 		}
 	}
 }
@@ -174,6 +191,19 @@ int getIndex(int x, int y, int z, Vector3i dims){
 }
 
 float getVel(int i, int x, int y, int z, std::vector<std::vector<Eigen::MatrixXd>>& gridVel){
+	// fix for extended grid
+	if(i == 0){
+		y += 1;
+		z += 1;
+	}
+	else if(i == 1){
+		x += 1;
+		z += 1;
+	}
+	else if(i == 2){
+		y += 1;
+		x += 1;
+	}
 	return gridVel[i][z](x,y);
 }
 
@@ -192,12 +222,6 @@ void calc_velocity_div(sim_data& data, VectorXd& div){
 		for(int y = 0; y < gh; y++){
 			for(int x = 0; x < gw; x++){
 				// zero out some velocities in calculations if near edges for boundary condition
-				/*double vx1 =  getVel(0,x,y,z,data.gridVel);
-				double vx2 =  getVel(0,x+1,y,z,data.gridVel);
-				double vy1 = getVel(1,x,y,z,data.gridVel);
-				double vy2 = getVel(1,x,y+1,z,data.gridVel);
-				double vz1 = getVel(2,x,y,z,data.gridVel);
-				double vz2 = getVel(2,x,y,z+1,data.gridVel);*/
 				
 				double vx1 = x == 0 ? 0 : getVel(0,x,y,z,data.gridVel);
 				double vx2 = x == gw-1 ? 0 : getVel(0,x+1,y,z,data.gridVel);
@@ -241,35 +265,6 @@ void calc_D_matrix(int gw, int gh, int gl, SparseMatrixd& D){
 				Dlist.push_back(T(DRow, getIndex(tx,ty,az,dims), -1));
 				Dlist.push_back(T(DRow, getIndex(tx,ty,az+1,dims), 1));
 				DRow ++;
-				/*int ax = tx == 0? 1 : tx; // adjusted for x gradient at edge
-				Dlist.push_back(T(DRow, getIndex(ax-1,ty,tz,dims), -1));
-				Dlist.push_back(T(DRow, getIndex(ax,ty,tz,dims), 1));
-				DRow ++;
-				
-				int ay = ty == 0? 1 : ty;
-				Dlist.push_back(T(DRow, getIndex(tx,ay-1,tz,dims), -1));
-				Dlist.push_back(T(DRow, getIndex(tx,ay,tz,dims), 1));
-				DRow ++;
-				
-				int az = tz == 0? 1 : tz;
-				Dlist.push_back(T(DRow, getIndex(tx,ty,az-1,dims), -1));
-				Dlist.push_back(T(DRow, getIndex(tx,ty,az,dims), 1));
-				DRow ++;*/
-				/*
-				int ax = tx == gw -1 ? gw - 2 : tx; // adjusted for x gradient at edge
-				Dlist.push_back(T(DRow, getIndex(ax,ty,tz,dims), -1));
-				Dlist.push_back(T(DRow, getIndex(ax+1,ty,tz,dims), 1));
-				DRow ++;
-				
-				int ay = ty == gh-1? gh - 2 : ty;
-				Dlist.push_back(T(DRow, getIndex(tx,ay,tz,dims), -1));
-				Dlist.push_back(T(DRow, getIndex(tx,ay+1,tz,dims), 1));
-				DRow ++;
-				
-				int az = tz == gl-1? gl - 2 : tz;
-				Dlist.push_back(T(DRow, getIndex(tx,ty,az,dims), -1));
-				Dlist.push_back(T(DRow, getIndex(tx,ty,az+1,dims), 1));
-				DRow ++;*/
 			}
 		}
 	}
@@ -311,22 +306,47 @@ void calc_B_matrix(int gw, int gh, int gl, SparseMatrixd& B){
 					Blist.push_back(T(BRow, getIndex(tx, ty, az, dims)*3+2, 1));
 				}
 				BRow ++;
-				/*int ax = tx == gw - 1 ? gw -2 : tx;
-				Blist.push_back(T(BRow, getIndex(ax, ty, tz, dims)*3+0, -1)); 
-				Blist.push_back(T(BRow, getIndex(ax+1,ty,tz,dims)*3+0, 1));
-				
-				int ay = ty == gh - 1 ? gh- 2: ty;
-				Blist.push_back(T(BRow, getIndex(tx, ay, tz, dims)*3+1, -1));
-				Blist.push_back(T(BRow, getIndex(tx, ay+1, tz, dims)*3+1, 1));
-				
-				int az = tz == gl - 1 ? gl - 2 : tz;
-				Blist.push_back(T(BRow, getIndex(tx, ty, az, dims)*3+2, -1));
-				Blist.push_back(T(BRow, getIndex(tx, ty, az+1, dims)*3+2, 1));
-				BRow ++;*/
 			}
 		}
 	}
 	B.setFromTriplets(Blist.begin(), Blist.end());
+
+	/*vector<T> Blist;
+	B.resize(gw*gh*gl, 3*gw*gh*gl);
+	Vector3i dims(gw, gh, gl);
+	int BRow = 0;
+	for(int tz = 0; tz < gl; tz++){
+		for(int ty = 0; ty < gh; ty++){
+			for(int tx = 0; tx < gw; tx++){
+				// pick the first component of the current position's pressure gradient
+				int ax = tx == 0 ? 1 : tx;
+				if(tx != 0){
+					Blist.push_back(T(BRow, getIndex(ax-1, ty, tz, dims)*3+0, -1)); 
+				}
+				if(tx != gw -1){
+					Blist.push_back(T(BRow, getIndex(ax,ty,tz,dims)*3+0, 1));
+				}
+				
+				int ay = ty == 0 ? 1 : ty;
+				if(ty != 0){
+					Blist.push_back(T(BRow, getIndex(tx, ay-1, tz, dims)*3+1, -1));
+				}
+				if(ty != gh - 1){
+					Blist.push_back(T(BRow, getIndex(tx, ay, tz, dims)*3+1, 1));
+				}
+				
+				int az = tz == 0 ? 1 : tz;
+				if(tz != 0){
+					Blist.push_back(T(BRow, getIndex(tx, ty, az-1, dims)*3+2, -1));
+				}
+				if(tz != gl - 1){
+					Blist.push_back(T(BRow, getIndex(tx, ty, az, dims)*3+2, 1));
+				}
+				BRow ++;
+			}
+		}
+	}
+	B.setFromTriplets(Blist.begin(), Blist.end());*/
 }
 
 void pressure_projection(sim_data& data, double dt){
@@ -354,7 +374,8 @@ void pressure_projection(sim_data& data, double dt){
 	calc_B_matrix(gw,gh,gl, B);
 	
 	// B*D
-	MatrixXd temp = B*D;
+	//MatrixXd temp = B*D;
+	MatrixXd temp = B;
 	SparseMatrixd A = temp.sparseView();
 	
 	LeastSquaresConjugateGradient<SparseMatrixd> solver;
@@ -389,35 +410,46 @@ void pressure_projection(sim_data& data, double dt){
 	
 	// Need to put velocity update in
 	// v = v - dt / density * grad(pressure)
-	for(int tz = 0; tz < data.gridDims(2); tz++){
-		for(int ty = 0; ty < data.gridDims(1); ty++){
-			for(int tx = 0; tx < data.gridDims(0); tx++){
-			// TODO: fix edge issue
-			    int ax = tx == gw -1 ? gw - 2 : tx; // adjusted for x gradient at edge
-			    int ay = ty == gh -1 ? gh - 2 : ty; // adjusted for y gradient at edge
-			    int az = tz == gl -1 ? gl - 2 : tz; // adjusted for z gradient at edge
-				
-				/*int x = min(data.gridDims(0)-2, tx); // gradient at the right/top/far edges is a repeated value
-				int y = min(data.gridDims(1)-2, ty);
-				int z = min(data.gridDims(2)-2, tz);*/
-				
-				// get pressure gradient
-				Vector3d pGrad = Vector3d::Zero();
-				
-				pGrad(0) = pressure(getIndex(ax+1,ty,tz,data.gridDims)) - pressure(getIndex(ax,ty,tz,data.gridDims));
-				pGrad(1) = pressure(getIndex(tx,ay+1,tz,data.gridDims)) - pressure(getIndex(tx,ay,tz,data.gridDims));
-				pGrad(2) = pressure(getIndex(tx,ty,az+1,data.gridDims)) - pressure(getIndex(tx,ty,az,data.gridDims));
-				
-				
-				data.gridVel[0][tz](tx,ty) -= dt / density * pGrad(0);
-				data.gridVel[1][tz](tx,ty) -= dt / density * pGrad(1);
-				data.gridVel[2][tz](tx,ty) -= dt / density * pGrad(2);
-				
-				
-				if(false){//data.print_debug_once){
-					cout << "-dt / density * pGrad: " << -dt / density * pGrad.transpose() << endl;
-					Vector3d tempVel(data.gridVel[0][tz](tx,ty), data.gridVel[1][tz](tx,ty), data.gridVel[2][tz](tx,ty));
-					cout << "data.gridVel: " << tempVel.transpose() << endl;;
+	zero_out_grid(data.dGridVel[0]);
+	zero_out_grid(data.dGridVel[1]);
+	zero_out_grid(data.dGridVel[2]);
+	
+	for(int dim = 0; dim < 3; dim++){
+		int dim2 = (dim+1)%3;
+		int dim3 = (dim+2)%3;
+		for(int iz = 0; iz < data.gridVel[dim].size(); iz++){
+			for(int iy = 0; iy < data.gridVel[dim][0].cols(); iy ++){
+				for(int ix = 0; ix < data.gridVel[dim][0].rows(); ix ++){
+					Vector3i idx(ix,iy,iz);
+					if(idx(dim2) == 0 || idx(dim2) == data.gridDims(dim2)+1 
+						|| idx(dim3) == 0 || idx(dim3) == data.gridDims(dim3)+1 ){
+						
+						continue; // ? don't have pressure for off grid velocities
+					}
+					else if(idx(dim) == 0 || idx(dim) == data.gridDims(dim)){
+						data.gridVel[dim][iz](ix,iy) = 0;
+					}else{
+						Vector3i pressureIdx1 = Vector3i::Zero();
+						pressureIdx1(dim) = idx(dim)-1;
+						pressureIdx1(dim2) = idx(dim2)-1;
+						pressureIdx1(dim3) = idx(dim3)-1;
+						
+						Vector3i pressureIdx2 = pressureIdx1;
+						pressureIdx2(dim) += 1;
+						double pGrad = pressure(getIndex(pressureIdx1(0),pressureIdx1(1),pressureIdx1(2), data.gridDims)*3 +dim);
+						
+						/*if(pressureIdx1(dim) > 0){  // If we don't use D matrix, we shouldn't take average gradient
+							Vector3i pressureIdxBefore = pressureIdx1;
+							pressureIdxBefore(dim) -= 1;
+							// Take average with adjacent pressure gradient if possible
+							pGrad = 0.5 * (pGrad + pressure(
+								getIndex(pressureIdxBefore(0),pressureIdxBefore(1),pressureIdxBefore(2), data.gridDims)*3 +dim));
+						}*/
+						//double pGrad = pressure(getIndex(pressureIdx2(0),pressureIdx2(1),pressureIdx2(2), data.gridDims))
+						//			 - pressure(getIndex(pressureIdx1(0),pressureIdx1(1),pressureIdx1(2), data.gridDims));
+						data.gridVel[dim][iz](ix,iy) -= dt / density * pGrad;
+						data.dGridVel[dim][iz](ix,iy) -= dt / density * pGrad;
+					}
 				}
 			}
 		}
@@ -425,6 +457,7 @@ void pressure_projection(sim_data& data, double dt){
 }
 
 void simulate(sim_data& data, double dt){
+	remove_particles(data);
 	step_advection(data, dt);
 	step_external_force(data, dt);
 	
@@ -435,7 +468,12 @@ void simulate(sim_data& data, double dt){
 	// solve for pressure, update gridVel
 	pressure_projection(data, dt);
 	
-	set_particles_with_grid(data);
+	if(data.flip_method){
+		set_particles_with_grid_flip(data);
+	}
+	else{
+		set_particles_with_grid(data);
+	}
 	data.print_debug_once = false;
 }
 
@@ -451,38 +489,3 @@ void print_data(sim_data& d){
 }
 
 
-/*
-	// Build q vector
-	VectorXd q(3 * (data.gridDims(0) + 1)* (data.gridDims(1) + 1)* (data.gridDims(2) + 1));
-	int partCount = 0;
-	for(int z = 0; z <= data.gridDims(2); z++){
-		for(int y = 0; y <= data.gridDims(1); y++){
-			for(int x = 0; x <= data.gridDims(0); x++){
-				int ind = getIndex(x,y,z, data.gridDims + Vector3i(1,1,1));
-				q(ind*3) = data.particles[partCount].vel(0);
-				q(ind*3+1) = data.particles[partCount].vel(1);
-				q(ind*3+2) = data.particles[partCount].vel(2);
-			}
-		}
-	}
-	
-	// Build RHS B Matrix
-	vector<T> Blist;
-	SparseMatrixd B(, q.rows());
-	int count = 0;
-	for(int z = 0; z < data.gridDims(2); z++){
-		for(int y = 0; y < data.gridDims(1); y++){
-			for(int x = 0; x < data.gridDims(0); x++){
-				int curInd = 3 * getIndex(x, y, z, data.gridDims);
-				Blist.push_back(T(count, curInd + 0, -1)); // x velocity  at current position
-				Blist.push_back(T(count, 3 * getIndex(x+1, y, z, data.gridDims), 1));
-				
-				Blist.push_back(T(count, curInd + 1, -1)); // y velocity at current position
-				Blist.push_back(T(count, 3 * getIndex(x,y+1,z,data.gridDims) + 1, 1));
-				
-				Blist.push_back(T(count, curInd + 2, -1)); // z velocity at current pos
-				Blist.push_back(T(count, 3 * getIndex(x,y,z+1,data.gridDims) + 2, 1));
-				count ++;
-			}
-		}
-	}*/

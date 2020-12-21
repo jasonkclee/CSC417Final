@@ -8,12 +8,14 @@
 using namespace Eigen;
 using namespace std;
 
-sim_data initSimDataFlat(){
-	sim_data data(3,3,3,0.2);
+sim_data initSimData(){
+	sim_data data(3,3,3);
 	cout << "initSimData\n";
-
-	data.particles.push_back(particle(Vector3d(1.5,1.5,0.5), Vector3d(1,0,0)));
-	data.particles.push_back(particle(Vector3d(1.5,0.5,0.5), Vector3d(1.2,0,0)));
+	data.particles.push_back(particle(Vector3d(1.0,1.5,0.5), Vector3d(0,1,0)));
+	//data.particles.push_back(particle(Vector3d(1.5,0.5,0.5), Vector3d(1.2,0,0)));
+	
+	//data.particles.push_back(particle(Vector3d(1.5,1.5,0.5), Vector3d(1,0,0)));
+	//data.particles.push_back(particle(Vector3d(1.5,0.5,0.5), Vector3d(1.2,0,0)));
 	//data.particles.push_back(particle(Vector3(2.5,1.5,0.5), Vector3d(1,0,0)));
 	
 	/*Vector3d origin = data.gridDims.cast<double>() * 0.5f;
@@ -49,7 +51,7 @@ int idx(int x, int y, int z, Vector3i dims){
 
 void runTests(){
 	cout << "TEST START\n";	
-	sim_data data = initSimDataFlat();
+	sim_data data = initSimData();
 	int gw = data.gridDims(0);
 	int gh = data.gridDims(1);
 	int gl = data.gridDims(2);
@@ -57,7 +59,13 @@ void runTests(){
 	// Check vel distrib. on grid
 	set_grid_with_particles(data);
 	for(int z = 0; z <= data.gridDims(2); z++){
-		cout << "gridVel[1][mid]:\n" << data.gridVel[0][z] << endl;
+		cout << "gridVel[1][mid]:\n" << data.gridVel[1][z] << endl;
+	}
+	
+	// Check redist.
+	set_particles_with_grid(data);
+	for(int i = 0; i < data.particles.size(); i++){
+		cout << "part.vel: " << data.particles[i].vel.transpose() << endl;
 	}
 	
 	// calculate d vector: gridW*gridH*gridL (divergence of velocity at each point)
@@ -105,9 +113,10 @@ void runTests(){
 	LeastSquaresConjugateGradient<SparseMatrix<double>> solver;
 	//LeastSquaresConjugateGradient<SparseMatrixd, Lower|Upper> solver;
 	solver.compute(A);
-	double density = 0.01;
+	double density = 0.000001;
 	double dt = 0.017;
-	VectorXd b = div * density / dt;
+	
+	VectorXd b = div * density / dt; //test
 	VectorXd pressure = solver.solve(b);
 	if(solver.info() != Success){
 		cout << "Solver failed! \n";
