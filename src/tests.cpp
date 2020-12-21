@@ -72,25 +72,25 @@ void runTests(){
 	VectorXd div;
 	calc_velocity_div(data, div);
 	cout << "Divergence of velocity: \n";
-	print_vector(div, gw, gh, gl);
+	print_vector(div, gw+2, gh+2, gl+2);
 	
 	// D * p should give vector of pressure gradients
 	// Pressure vector: p[x + y * gridW + z * gridW * gridH] = pressure at grid point x,y,z 
-	VectorXd p = VectorXd::Zero(gw * gh * gl);
-	Vector3i dims(gw, gh, gl);
+	VectorXd p = VectorXd::Zero((gw+2) * (gh+2) * (gl+2));
+	Vector3i dims(gw+2, gh+2, gl+2);
 	p(idx(1,1,1,dims)) = 1;
 	
 	SparseMatrix<double> D;
-	calc_D_matrix(gw, gh, gl, D);
+	calc_D_matrix(gw+2, gh+2, gl+2, D);
 	//cout << "D matrix: \n" << MatrixXd(D);
 	
 	VectorXd pGrad = D * p;
 	// print pressure gradients
 	cout << "Pressure gradient: \n";
-	for(int z = 0; z < gl; z ++){
+	for(int z = 0; z < gl+2; z ++){
 		cout << "z = " << z << endl;
-		for(int x = 0; x < gw; x ++){
-			for(int y = 0; y < gh; y ++){
+		for(int x = 0; x < gw+2; x ++){
+			for(int y = 0; y < gh+2; y ++){
 				int index = idx(x,y,z, dims) * 3;
 				cout << "(" << pGrad(index) << "," <<  pGrad(index+1) << "," <<  pGrad(index+2) << ") ";
 			}
@@ -103,8 +103,29 @@ void runTests(){
 	// B * D * p = divergence of pressure gradient at each point
 	SparseMatrix<double> B;
 	calc_B_matrix(gw, gh, gl, B);
+	MatrixXd tempB = MatrixXd(B);
+	
+	cout << "calcing BTest" << endl;
+	SparseMatrix<double> Btest;
+	calc_B_matrix(2,2,2, Btest);
+	
+		int k = 5;
+		for(int i = 0; i < Btest.cols(); i +=3){
+			cout << "(" << Btest.coeff(k,i) << "," << Btest.coeff(k,i+1) << "," << Btest.coeff(k,i+2) << ") ";	
+		}
+		cout << endl;
+	
+	/*
+	for(int j = 0; j < Btest.rows(); j ++){
+		for(int i = 0; i < Btest.cols(); i +=3){
+			cout << "(" << Btest.coeff(j,i) << "," << Btest.coeff(j,i+1) << "," << Btest.coeff(j,i+2) << ") ";	
+		}
+		cout << endl;
+	}*/
+	//cout << "B matrix:\n" << tempB;
 	VectorXd pDivergence = B * D * p;
-	print_vector(pDivergence, gw, gh, gl);
+	cout << "Pressure divergence:\n";
+	print_vector(pDivergence, gw+2, gh+2, gl+2);
 	
 	// Solve
 	MatrixXd temp = B*D;

@@ -55,16 +55,9 @@ void remove_particles(sim_data& d){
 }
 
 void step_advection(sim_data& d, double dt){
-	bool alert = false;
 	for(int i = 0; i < d.particles.size(); i++){
 		d.particles[i].pos += d.particles[i].vel * dt;
 		Vector3d pos = d.particles[i].pos;
-		if(pos(0) < 0 || pos(1) < 0 || pos(2) < 0){
-			alert = true;
-		}
-	}
-	if(alert){
-		cout << "Particle < 0 !!\n";
 	}
 }
 
@@ -100,14 +93,6 @@ void set_grid_with_particles(sim_data& d){
 			for(int ox = 0; ox <= 1; ox ++){
 				for(int oy = 0; oy <=1; oy ++){
 					for(int oz = 0; oz <= 1; oz ++){
-						/*Vector3i vectorIndex = iposForIndex + Vector3i(ox, oy, oz);
-						if(vectorIndex(dim) == 0 || vectorIndex(dim) == d.gridDims(dim)){
-							// leave it at zero?
-						}
-						else{
-							double w = calc_weight(dposForIndex, vectorIndex.cast<double>());
-							d.gridVel[dim][vectorIndex[2]](vectorIndex(0), vectorIndex(1)) += w * part.vel(dim);
-						}*/
 					
 						Vector3i vectorIndex = iposForIndex + Vector3i(ox, oy, oz);
 						double w = calc_weight(dposForIndex, vectorIndex.cast<double>());
@@ -191,44 +176,28 @@ int getIndex(int x, int y, int z, Vector3i dims){
 }
 
 float getVel(int i, int x, int y, int z, std::vector<std::vector<Eigen::MatrixXd>>& gridVel){
-	// fix for extended grid
-	if(i == 0){
-		y += 1;
-		z += 1;
-	}
-	else if(i == 1){
-		x += 1;
-		z += 1;
-	}
-	else if(i == 2){
-		y += 1;
-		x += 1;
-	}
 	return gridVel[i][z](x,y);
 }
 
-float getPressure(int x, int y, int z, std::vector<Eigen::MatrixXd>& gridP){
-	return gridP[z](x,y);
-}
 
 // calculate d vector: gridW*gridH*gridL (divergence of velocity at each point)
 void calc_velocity_div(sim_data& data, VectorXd& div){
 	int gw = data.gridDims(0);
 	int gh = data.gridDims(1);
 	int gl = data.gridDims(2);
-	div = VectorXd::Zero(gw * gh * gl);
+	div = VectorXd::Zero((gw+2) * (gh+2) * (gl+2));
 	int partCount = 0;
-	for(int z = 0; z < gl; z++){
-		for(int y = 0; y < gh; y++){
-			for(int x = 0; x < gw; x++){
+	for(int z = 0; z < gl+2; z++){
+		for(int y = 0; y < gh+2; y++){
+			for(int x = 0; x < gw+2; x++){
 				// zero out some velocities in calculations if near edges for boundary condition
 				
-				double vx1 = x == 0 ? 0 : getVel(0,x,y,z,data.gridVel);
-				double vx2 = x == gw-1 ? 0 : getVel(0,x+1,y,z,data.gridVel);
-				double vy1 = y == 0 ? 0 : getVel(1,x,y,z,data.gridVel);
-				double vy2 = y == gh-1 ? 0 : getVel(1,x,y+1,z,data.gridVel);
-				double vz1 = z == 0 ? 0 : getVel(2,x,y,z,data.gridVel);
-				double vz2 = z == gl-1 ? 0 : getVel(2,x,y,z+1,data.gridVel);
+				double vx1 = x == 0 ? 0 : getVel(0,x-1,y,z,data.gridVel);
+				double vx2 = x == gw+1 ? 0 : getVel(0,x,y,z,data.gridVel);
+				double vy1 = y == 0 ? 0 : getVel(1,x,y-1,z,data.gridVel);
+				double vy2 = y == gh+1 ? 0 : getVel(1,x,y,z,data.gridVel);
+				double vz1 = z == 0 ? 0 : getVel(2,x,y,z-1,data.gridVel);
+				double vz2 = z == gl+1 ? 0 : getVel(2,x,y,z,data.gridVel);
 				
 				div(partCount) = vx2 - vx1
 							   + vy2 - vy1
@@ -275,78 +244,41 @@ void calc_D_matrix(int gw, int gh, int gl, SparseMatrixd& D){
 // B * D * p = divergence of pressure gradient at each point
 void calc_B_matrix(int gw, int gh, int gl, SparseMatrixd& B){
 	vector<T> Blist;
-	B.resize(gw*gh*gl, 3*gw*gh*gl);
-	Vector3i dims(gw, gh, gl);
+	B.resize((gw+2) * (gh+2) * (gl+2), 3*(gw+2) * (gh+2) * (gl+2));
+	Vector3i dims((gw+2), (gh+2), (gl+2));
 	int BRow = 0;
-	for(int tz = 0; tz < gl; tz++){
-		for(int ty = 0; ty < gh; ty++){
-			for(int tx = 0; tx < gw; tx++){
-				// pick the first component of the current position's pressure gradient
-				int ax = tx == 0 ? 1 : tx;
+	for(int tz = 0; tz < gl+2; tz++){
+		for(int ty = 0; ty < gh+2; ty++){
+			for(int tx = 0; tx < gw+2; tx++){
+				// zero out/ignore some of the pressure gradients must be zeroed out due to wall
+			
 				if(tx != 0){
-					Blist.push_back(T(BRow, getIndex(ax-1, ty, tz, dims)*3+0, -1)); 
+					Blist.push_back(T(BRow, getIndex(tx-1, ty, tz, dims)*3+0, -1));
 				}
-				if(tx != gw -1){
-					Blist.push_back(T(BRow, getIndex(ax,ty,tz,dims)*3+0, 1));
+				if(tx != gw +1){
+					Blist.push_back(T(BRow, getIndex(tx,ty,tz,dims)*3+0, 1));
 				}
 				
-				int ay = ty == 0 ? 1 : ty;
 				if(ty != 0){
-					Blist.push_back(T(BRow, getIndex(tx, ay-1, tz, dims)*3+1, -1));
+					Blist.push_back(T(BRow, getIndex(tx, ty-1, tz, dims)*3+1, -1));
 				}
-				if(ty != gh - 1){
-					Blist.push_back(T(BRow, getIndex(tx, ay, tz, dims)*3+1, 1));
+				if(ty != gh + 1){
+					Blist.push_back(T(BRow, getIndex(tx, ty, tz, dims)*3+1, 1));
 				}
 				
-				int az = tz == 0 ? 1 : tz;
 				if(tz != 0){
-					Blist.push_back(T(BRow, getIndex(tx, ty, az-1, dims)*3+2, -1));
+					Blist.push_back(T(BRow, getIndex(tx, ty, tz-1, dims)*3+2, -1));
 				}
-				if(tz != gl - 1){
-					Blist.push_back(T(BRow, getIndex(tx, ty, az, dims)*3+2, 1));
+				if(tz != gl + 1){
+					Blist.push_back(T(BRow, getIndex(tx, ty, tz, dims)*3+2, 1));
 				}
 				BRow ++;
 			}
 		}
 	}
 	B.setFromTriplets(Blist.begin(), Blist.end());
+	
 
-	/*vector<T> Blist;
-	B.resize(gw*gh*gl, 3*gw*gh*gl);
-	Vector3i dims(gw, gh, gl);
-	int BRow = 0;
-	for(int tz = 0; tz < gl; tz++){
-		for(int ty = 0; ty < gh; ty++){
-			for(int tx = 0; tx < gw; tx++){
-				// pick the first component of the current position's pressure gradient
-				int ax = tx == 0 ? 1 : tx;
-				if(tx != 0){
-					Blist.push_back(T(BRow, getIndex(ax-1, ty, tz, dims)*3+0, -1)); 
-				}
-				if(tx != gw -1){
-					Blist.push_back(T(BRow, getIndex(ax,ty,tz,dims)*3+0, 1));
-				}
-				
-				int ay = ty == 0 ? 1 : ty;
-				if(ty != 0){
-					Blist.push_back(T(BRow, getIndex(tx, ay-1, tz, dims)*3+1, -1));
-				}
-				if(ty != gh - 1){
-					Blist.push_back(T(BRow, getIndex(tx, ay, tz, dims)*3+1, 1));
-				}
-				
-				int az = tz == 0 ? 1 : tz;
-				if(tz != 0){
-					Blist.push_back(T(BRow, getIndex(tx, ty, az-1, dims)*3+2, -1));
-				}
-				if(tz != gl - 1){
-					Blist.push_back(T(BRow, getIndex(tx, ty, az, dims)*3+2, 1));
-				}
-				BRow ++;
-			}
-		}
-	}
-	B.setFromTriplets(Blist.begin(), Blist.end());*/
 }
 
 void pressure_projection(sim_data& data, double dt){
@@ -358,19 +290,19 @@ void pressure_projection(sim_data& data, double dt){
 	// velocity vector q: velocity[3*(x + y * gridW + z * gridW * gridH) + i] = vel(i) at grid point x,y,z
 	
 	// calculate d vector: gridW*gridH*gridL (divergence of velocity at each point)
-	VectorXd div = VectorXd::Zero(gw * gh * gl);
+	VectorXd div;// = VectorXd::Zero(gw * gh * gl);
 	calc_velocity_div(data, div);
 	
 	// D * p should give vector of pressure gradients
 	// grad[3*(x + y * gridW + z * gridW * gridH)] = gradient at x,y,z
 	// Build 3*gridW*gridH*gridL X gridW*gridH*gridL matrix D for calcing gradient
-	SparseMatrixd D(3*gw*gh*gl, gw*gh*gl);
+	SparseMatrixd D;//(3*gw*gh*gl, gw*gh*gl);
 	calc_D_matrix(gw, gh, gl, D);
 	
 	
 	// Build matrix B for LHS
 	// B * D * p = divergence of pressure gradient at each point
-	SparseMatrixd B(gw*gh*gl, 3*gw*gh*gl);
+	SparseMatrixd B;//(gw*gh*gl, 3*gw*gh*gl);
 	calc_B_matrix(gw,gh,gl, B);
 	
 	// B*D
@@ -379,31 +311,16 @@ void pressure_projection(sim_data& data, double dt){
 	SparseMatrixd A = temp.sparseView();
 	
 	LeastSquaresConjugateGradient<SparseMatrixd> solver;
-	//ConjugateGradient<SparseMatrixd, Lower|Upper> solver;
 	solver.compute(A);
 	double density = 0.01;
 	VectorXd b = div * density / dt;
 	
-	//cout << "b: " << b << endl;
-	
 	VectorXd pressure = solver.solve(b);
 	
-	if(temp.hasNaN()){
-		cout << "A has NaN!!\n";
-	}
-	if(b.hasNaN()){
-		cout << "b has NaN!!\n";
+	if(solver.info() != Success){
+		//cout << "Solver failed! \n";
 	}
 	
-	if(solver.info() != Success){
-		cout << "Solver failed! \n";
-		
-	}
-	else{
-		//cout << "SUCCESS! \n";
-		//data.print_debug_once = true;
-		//
-	}
 	if(data.print_debug_once){
 		cout << "Pressure: " << pressure.transpose() << endl;
 	}
@@ -421,35 +338,15 @@ void pressure_projection(sim_data& data, double dt){
 			for(int iy = 0; iy < data.gridVel[dim][0].cols(); iy ++){
 				for(int ix = 0; ix < data.gridVel[dim][0].rows(); ix ++){
 					Vector3i idx(ix,iy,iz);
-					if(idx(dim2) == 0 || idx(dim2) == data.gridDims(dim2)+1 
-						|| idx(dim3) == 0 || idx(dim3) == data.gridDims(dim3)+1 ){
-						
-						continue; // ? don't have pressure for off grid velocities
-					}
-					else if(idx(dim) == 0 || idx(dim) == data.gridDims(dim)){
-						data.gridVel[dim][iz](ix,iy) = 0;
-					}else{
-						Vector3i pressureIdx1 = Vector3i::Zero();
-						pressureIdx1(dim) = idx(dim)-1;
-						pressureIdx1(dim2) = idx(dim2)-1;
-						pressureIdx1(dim3) = idx(dim3)-1;
-						
-						Vector3i pressureIdx2 = pressureIdx1;
-						pressureIdx2(dim) += 1;
-						double pGrad = pressure(getIndex(pressureIdx1(0),pressureIdx1(1),pressureIdx1(2), data.gridDims)*3 +dim);
-						
-						/*if(pressureIdx1(dim) > 0){  // If we don't use D matrix, we shouldn't take average gradient
-							Vector3i pressureIdxBefore = pressureIdx1;
-							pressureIdxBefore(dim) -= 1;
-							// Take average with adjacent pressure gradient if possible
-							pGrad = 0.5 * (pGrad + pressure(
-								getIndex(pressureIdxBefore(0),pressureIdxBefore(1),pressureIdxBefore(2), data.gridDims)*3 +dim));
-						}*/
-						//double pGrad = pressure(getIndex(pressureIdx2(0),pressureIdx2(1),pressureIdx2(2), data.gridDims))
-						//			 - pressure(getIndex(pressureIdx1(0),pressureIdx1(1),pressureIdx1(2), data.gridDims));
-						data.gridVel[dim][iz](ix,iy) -= dt / density * pGrad;
-						data.dGridVel[dim][iz](ix,iy) -= dt / density * pGrad;
-					}
+					Vector3i pressureDim((gw+2), (gh+2), (gl+2));
+					Vector3i tIdx = idx;
+					//tIdx(dim) += 1;
+					
+					//double pGrad = pressure(getIndex(ix,iy,iz,pressureDim)*3 + dim);
+					double pGrad = pressure(getIndex(tIdx(0),tIdx(1),tIdx(2),pressureDim)*3 + dim);
+					data.gridVel[dim][iz](ix,iy) -= dt / density * pGrad;
+					data.dGridVel[dim][iz](ix,iy) -= dt / density * pGrad;
+					
 				}
 			}
 		}
@@ -457,14 +354,13 @@ void pressure_projection(sim_data& data, double dt){
 }
 
 void simulate(sim_data& data, double dt){
-	remove_particles(data);
+	//remove_particles(data);
 	step_advection(data, dt);
 	step_external_force(data, dt);
 	
 	// set grid with velocities from particles
 	set_grid_with_particles(data);
 	
-	// zero out pressure grid first?
 	// solve for pressure, update gridVel
 	pressure_projection(data, dt);
 	

@@ -58,18 +58,12 @@ MatrixXi getCubeF(){
 void initSimData(sim_data& data, int num){
 	cout << "initSimData\n";
 	Vector3d origin = data.gridDims.cast<double>() * 0.5f;
-	//origin(1) *= 1.5;
 	for(int i = 0; i < num; i++){
-	//Vector3d offset = Vector3d::Zero();
-	
 		Vector3d offset = Vector3d::Random();
-		offset(0) *= data.gridDims(0) * 0.2;
-		offset(1) *= data.gridDims(1) * 0.2;
-		offset(2) *= data.gridDims(2) * 0.2;
-		offset *= 0.01;
-		data.particles.push_back(particle(origin + offset, Vector3d::Random()*0.001));
-		//data.particles.push_back(particle(origin + offset, Vector3d(0,1,0)+ Vector3d::Random()));
-		//data.particles.push_back(particle(origin + offset, Vector3d(0,1,0) + Vector3d::Random()));
+		offset(0) *= data.gridDims(0) * 0.5;
+		offset(1) *= data.gridDims(1) * 0.5;
+		offset(2) *= data.gridDims(2) * 0.5;
+		data.particles.push_back(particle(origin + offset, Vector3d::Random()*0.1));
 	}
 }
 
@@ -78,11 +72,15 @@ void initSimData(sim_data& data, int num){
 
 int main(int argc, char *argv[])
 {
+  if(cmdOptionExists(argv, argv+argc, "-test")){
+  	runTests();
+  	return 0;
+  }
   // Variables to hold arguments
-  double gravity = 0.1f;
+  double gravity = 0.01f;
   int gridSize = 10;
   double dt = 0.14;
-  int numParts = 5;
+  int numParts = 12;
   bool flip_method = true;
   
   if(cmdOptionExists(argv, argv+argc, "-g"))
@@ -161,7 +159,7 @@ int main(int argc, char *argv[])
     }
     
   	data.particles[0].vel += dVel;
-  	double initVel = 1.7;
+  	double initVel = data.gridDims.minCoeff() * 0.15;
     switch(key)
     {
       case 't':
@@ -171,7 +169,7 @@ int main(int argc, char *argv[])
       }
       case 'r':
       {
-        Vector3d spawn = data.gridDims.cast<double>() - Vector3d(0.1,0.1,0.1);
+        Vector3d spawn = data.gridDims.cast<double>() - Vector3d(1.1,1.1,1.1);
       	data.particles.push_back(particle(spawn, -initVel*(Vector3d(1.0,1.0,1.0) + Vector3d::Random()) ));
       	break;
       }

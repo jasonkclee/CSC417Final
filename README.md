@@ -1,39 +1,19 @@
-# libigl example project
+#Fluid simulation
+Uses LibIgl for rendering. Make sure to have the libigl folder in the root directory, or clone from the repo with `git clone --recursive`
+Link to video: https://drive.google.com/file/d/1RpY4kBs0ZHhLSZXkEahUdkOaYhZUQQk1/view?usp=sharing
 
-A blank project example showing how to use libigl and cmake. Feel free and
-encouraged to copy or fork this project as a way of starting a new personal
-project using libigl.
-
-## See the tutorial first
-
-Then build, run and understand the [libigl
-tutorial](http://libigl.github.io/libigl/tutorial/).
-
-## Dependencies
-
-The only dependencies are stl, eigen, [libigl](http://libigl.github.io/libigl/) and
-the dependencies of the `igl::opengl::glfw::Viewer`.
-
-The cmake build system will attempt to find libigl according to environment variables (e.g., `LIBIGL`) and searching in common desitinations (e.g., `/usr/local/libigl/`). If you haven't installed libigl before, we recommend you to clone a copy of libigl right here:
-
-    cd libigl-example-project/
-    git clone https://github.com/libigl/libigl.git
-
-## Compile
-
-Compile this project using the standard cmake routine:
-
-    mkdir build
-    cd build
-    cmake ..
-    make
-
-This should find and build the dependencies and create a `example_bin` binary.
-
-## Run
-
-From within the `build` directory just issue:
-
-    ./example
-
-A glfw app should launch displaying a 3D cube.
+### Compilation
+`mk dir build`
+`cd build`
+`cmake .. -DCMAKE_BUILD_TYPE=Release`
+`make`
+Run with `./fluid`
+Use the `t` and `r` key to spawn more particles
+### Optional Arguments
+`-s [grid size]`
+`-n [number of particles]`
+`-s [grid size]`
+`-dt [delta time]`
+`-g [gravity]`
+`-pic` Uses the PIC method instead of FLIP
+EX: `./fluid -s 10 -n 3`
