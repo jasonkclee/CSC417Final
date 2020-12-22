@@ -1,5 +1,5 @@
 # Fluid simulation
-Uses LibIgl for rendering. Make sure to have the libigl folder in the root directory, or clone from the repo with `git clone --recursive`
+Uses LibIgl for rendering. Make sure to have the libigl installed in the root directory, as folder "libigl", or clone from the repo with `git clone --recursive`
 Link to video: https://drive.google.com/file/d/1RpY4kBs0ZHhLSZXkEahUdkOaYhZUQQk1/view?usp=sharing
 Link to repo: https://github.com/jasonkclee/CSC417Final
 ### Compilation
